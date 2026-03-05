@@ -5,6 +5,7 @@ import uvicorn
 # Import sub-apps
 from api.diet_co2.main import app as diet_app
 from api.python_vin_co2.src.main import app as vin_app
+from api.billing.main import app as billing_app
 
 app = FastAPI(title="Carbon-Tracker Unified API")
 
@@ -18,10 +19,11 @@ app.add_middleware(
 # Mount sub-apps
 app.mount("/api/diet", diet_app)
 app.mount("/api/vin", vin_app)
+app.mount("/api/billing", billing_app)
 
 @app.get("/")
 async def root():
     return {"message": "Carbon-Tracker API is running"}
 
 if __name__ == "__main__":
-    uvicorn.run("api.main:app", host="0.0.0.0", port=3000, reload=True)
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -2,11 +2,13 @@ import os
 import logging
 import math
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from pydantic import BaseModel
+from typing import Optional
 
 from api.database import get_db
 from api.models import User, Vehicle, GPSLog
@@ -33,7 +35,14 @@ async def startup_event():
     # Load tables for emission service
     emission.reload_tables()
 
-# ----------------- Endpoints -----------------
+# ----------------- Schemas -----------------
+
+class DailyCalculateRequest(BaseModel):
+    user_id: str
+    country_code: Optional[str] = "IN"
+    subregion: Optional[str] = ""
+
+# ----------------- Schemas End -----------------
 
 @app.get("/")
 def home():
@@ -44,7 +53,11 @@ def ping():
     return {"status": "ok"}
 
 @app.post("/upload-vin")
-async def upload_vin(user_id: str, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def upload_vin(
+    user_id: str = Form(...), 
+    file: UploadFile = File(...), 
+    db: AsyncSession = Depends(get_db)
+):
     raw = await file.read()
     mime = file.content_type or "image/jpeg"
     text = extract_text_from_image_gemini(raw, mime_type=mime)
@@ -92,8 +105,13 @@ async def upload_vin(user_id: str, file: UploadFile = File(...), db: AsyncSessio
     return {"vin": vin, "decoded": decoded, "vehicle_category": cat, "fuel_type": fuel_norm}
 
 @app.post("/calculate/daily")
-async def calculate_daily(user_id: str, country_code: str = None, subregion: str = "", db: AsyncSession = Depends(get_db)):
-    user_id = str(user_id).strip()
+async def calculate_daily(
+    payload: DailyCalculateRequest, 
+    db: AsyncSession = Depends(get_db)
+):
+    user_id = payload.user_id.strip()
+    country_code = payload.country_code or "IN"
+    subregion = payload.subregion or ""
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 

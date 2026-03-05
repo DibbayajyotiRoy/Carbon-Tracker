@@ -62,5 +62,5 @@ sudo systemctl daemon-reload
 sudo systemctl enable carbon-tracker.service
 sudo systemctl start carbon-tracker.service
 
-echo "Deployment Complete! Backend should be running at http://localhost:3000"
+echo "Deployment Complete! Backend should be running at http://localhost:8000"
 sudo systemctl status carbon-tracker.service --no-pager
