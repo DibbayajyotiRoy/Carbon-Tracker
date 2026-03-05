@@ -17,19 +17,38 @@ EOF
 
 # 3. Install uv
 echo "Installing uv..."
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.cargo/env
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+else
+    echo "uv is already installed."
+fi
 
-# 4. Sync dependencies
+# 4. Environment Setup
+echo "Creating .env file if missing..."
+if [ ! -f .env ]; then
+    cat <<EOF > .env
+DATABASE_URL=postgresql+asyncpg://carbon_user:password@localhost/carbon_tracker
+GEMINI_API_KEY=YOUR_API_KEY_HERE
+EOF
+    echo ".env created. PLEASE UPDATE GEMINI_API_KEY later!"
+fi
+
+# 5. Sync dependencies
 echo "Syncing dependencies with uv..."
 uv sync
 
-# 5. Initialize and seed DB
+# 6. Initialize and seed DB
 echo "Initializing Database..."
-DATABASE_URL=postgresql+asyncpg://carbon_user:password@localhost/carbon_tracker uv run deploy/init_db.py
+# Use the local .env if present via uv run
+uv run deploy/init_db.py
 
-# 6. Setup systemd
+# 7. Setup systemd
 echo "Setting up systemd service..."
+# Update paths and user/group in service file for ubuntu user
+sed -i "s|/home/roy|/home/ubuntu|g" deploy/carbon-tracker.service
+sed -i "s|User=roy|User=ubuntu|g" deploy/carbon-tracker.service
+sed -i "s|Group=roy|Group=ubuntu|g" deploy/carbon-tracker.service
 sudo cp deploy/carbon-tracker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable carbon-tracker.service
