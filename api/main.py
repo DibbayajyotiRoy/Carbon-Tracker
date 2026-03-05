@@ -6,6 +6,7 @@ import uvicorn
 from api.diet_co2.main import router as diet_router
 from api.python_vin_co2.src.main import router as vin_router, init_vin_service
 from api.billing.main import router as billing_router
+from api.users import router as users_router
 
 app = FastAPI(title="Carbon-Tracker Unified API")
 
@@ -21,6 +22,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(users_router, prefix="/api")
 app.include_router(diet_router, prefix="/api/diet")
 app.include_router(vin_router, prefix="/api/vin")
 app.include_router(billing_router, prefix="/api/billing")

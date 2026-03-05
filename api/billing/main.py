@@ -2,16 +2,14 @@ import os
 import json
 import io
 from datetime import datetime
-from fastapi import UploadFile, File, HTTPException, Depends, Form, APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import UploadFile, File, HTTPException, Depends, Form, APIRouter, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from pypdf import PdfReader
-from pydantic import BaseModel
-
-from api.database import get_db
-from api.models import User, ElectricityBill, LPGRecord
 from api.llm_utils import call_llm, extract_text_from_image
+from api.database import get_db
+from api.models import User, ElectricityBill, LPGRecord, FoodEmission, GPSLog, Vehicle
+from api.billing.pdf_generator import generate_professional_report
 
 router = APIRouter(tags=["billing"])
 
@@ -239,7 +237,90 @@ async def fetch_lpg(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/calculate-lpg-emissions")
+@router.get("/export-pdf")
+async def export_pdf(userId: str, db: AsyncSession = Depends(get_db)):
+    """
+    Export professional CO2 audit report as PDF.
+    """
+    try:
+        # Aggregation Logic
+        # 1. Diet
+        stmt = select(FoodEmission).where(FoodEmission.user_id == userId)
+        res = await db.execute(stmt)
+        diet_items_raw = res.scalars().all()
+        diet_items = [{"food_type": i.food_type, "quantity_grams": i.quantity_grams, "co2_kg": i.co2_kg} for i in diet_items_raw]
+        diet_total = sum(i['co2_kg'] for i in diet_items)
+        
+        # 2. Transport
+        stmt = select(GPSLog).where(GPSLog.user_id == userId)
+        res = await db.execute(stmt)
+        transport_logs_raw = res.scalars().all()
+        transport_logs = [{"distance_km": l.distance_km} for l in transport_logs_raw]
+        
+        stmt = select(Vehicle).where(Vehicle.user_id == userId).limit(1)
+        res = await db.execute(stmt)
+        vehicle_obj = res.scalar_one_or_none()
+        vehicle = {
+            "make": vehicle_obj.make,
+            "model": vehicle_obj.model,
+            "year": vehicle_obj.year,
+            "emission_factor": vehicle_obj.emission_factor
+        } if vehicle_obj else None
+        
+        transport_total = 0
+        if vehicle_obj and vehicle_obj.emission_factor:
+            dist = sum(l['distance_km'] for l in transport_logs)
+            transport_total = dist * vehicle_obj.emission_factor
+            
+        # 3. Energy
+        stmt = select(ElectricityBill).where(ElectricityBill.user_id == userId)
+        res = await db.execute(stmt)
+        bills_raw = res.scalars().all()
+        bills = [{
+            "file_name": b.file_name,
+            "extracted_data": b.extracted_data,
+            "carbon_emitted": b.carbon_emitted
+        } for b in bills_raw]
+        energy_elec_total = sum(b['carbon_emitted'] for b in bills)
+        
+        stmt = select(LPGRecord).where(LPGRecord.user_id == userId)
+        res = await db.execute(stmt)
+        lpg_raw = res.scalars().all()
+        lpg = [{
+            "cylinders_consumed": r.cylinders_consumed,
+            "carbon_emitted": r.carbon_emitted,
+            "created_at": r.created_at
+        } for r in lpg_raw]
+        energy_lpg_total = sum(r['carbon_emitted'] for r in lpg)
+        
+        energy_total = energy_elec_total + energy_lpg_total
+        
+        total_co2 = diet_total + transport_total + energy_total
+        
+        report_data = {
+            "total_co2": total_co2,
+            "diet_total": diet_total,
+            "diet_items": diet_items,
+            "transport_total": transport_total,
+            "transport_logs": transport_logs,
+            "vehicle": vehicle,
+            "energy_total": energy_total,
+            "electricity_bills": bills,
+            "lpg_records": lpg
+        }
+        
+        pdf_buffer = generate_professional_report(userId, report_data)
+        
+        headers = {
+            'Content-Disposition': 'attachment; filename="Carbon_Report.pdf"'
+        }
+        return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+        
+    except Exception as e:
+        print(f"Error generating PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+router.post("/calculate-lpg-emissions")
 async def calculate_lpg_emissions(req: LpgEmissionRequest):
     cylindersConsumed = req.cylindersConsumed
     lpgInKg = req.lpgInKg

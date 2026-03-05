@@ -16,6 +16,16 @@ The application uses specific data files for emission factors. We have implement
 - **Service Mode**: Ensure the working directory is set to the project root or use the environment variables above to override paths.
 
 
+## 👤 User Profile
+**Base Path:** `/api`
+
+### GET `/me`
+Get current user details.
+**Header:** `X-User-ID` (Required)
+**Response:** `{"id": "...", "full_name": "...", "created_at": "..."}`
+
+---
+
 ## 🛠 Testing the API
 
 You can test the API using the interactive documentation provided by FastAPI:
@@ -92,6 +102,11 @@ Predict transport mode based on speed.
 
 ## ⚡ 4. Billing Service
 **Base Path:** `/api/billing`
+
+### GET `/export-pdf`
+Download a professional PDF audit report.
+**Query Param:** `userId` (Required)
+**Response:** `application/pdf` attachment.
 
 ### POST `/upload-bill`
 Upload electricity bill (PDF/JPG/PNG) for OCR and calculation.
