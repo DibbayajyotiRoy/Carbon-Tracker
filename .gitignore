@@ -1,0 +1,35 @@
+# uv
+.venv/
+venv/
+ENV/
+env/
+uv.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+eggs/
+*.egg
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# Database
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment
+deploy/carbon-tracker.service
