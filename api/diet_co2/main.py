@@ -1,63 +1,67 @@
 import os
 import uuid
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from fastapi.responses import JSONResponse
 from typing import List
-import asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
 from fastapi.encoders import jsonable_encoder
 
+from api.database import get_db
+from api.models import FoodEmissionFactor, FoodEmission, User
+from api.diet_co2.models import FoodInput, ConsumptionRequest, ConsumptionResponse, ComputationResult
 
-from .db import db
-from .models import FoodInput, ConsumptionRequest, ConsumptionResponse, ComputationResult
-
-app = FastAPI(title="Diet CO2 Service")
-
-FOOD_COLLECTION = "food_efs"
-LOG_COLLECTION = "consumption_logs"
+router = APIRouter(tags=["diet"])
 
 def normalize_name(n: str) -> str:
     return n.strip().lower()
 
-async def lookup_ef(food_name: str):
-    # search by normalized field (we no longer store normalized name as _id)
+async def lookup_ef(db: AsyncSession, food_name: str):
     norm = normalize_name(food_name)
-    doc = await db[FOOD_COLLECTION].find_one({"food_name_normalized": norm})
-    return doc
+    # Search by exact normalized name
+    stmt = select(FoodEmissionFactor).where(FoodEmissionFactor.food_type_normalized == norm)
+    result = await db.execute(stmt)
+    ef = result.scalar_one_or_none()
+    
+    if not ef:
+        # Fallback to regex-like search using LIKE
+        stmt = select(FoodEmissionFactor).where(FoodEmissionFactor.food_type_normalized.like(f"%{norm}%"))
+        result = await db.execute(stmt)
+        ef = result.scalars().first()
+        
+    return ef
 
-
-@app.post("/compute_food_co2", response_model=ConsumptionResponse)
-async def compute_food_co2(req: ConsumptionRequest):
+@router.post("/compute_food_co2", response_model=ConsumptionResponse)
+async def compute_food_co2(req: ConsumptionRequest, db: AsyncSession = Depends(get_db)):
     # session id groups multiple items in one event
     session_id = str(uuid.uuid4())
     ate_at = req.ate_at or datetime.utcnow()
     user_id = req.user_id
 
+    # Ensure user exists if provided
+    if user_id:
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if not user:
+            user = User(id=user_id)
+            db.add(user)
+            await db.commit()
+
     results: List[ComputationResult] = []
     total_co2 = 0.0
 
-    # Validate items list
     if not req.items or len(req.items) == 0:
         raise HTTPException(status_code=400, detail="No items provided")
 
     for item in req.items:
-        # lookup EF
-        ef_doc = await lookup_ef(item.food_type)
+        ef_doc = await lookup_ef(db, item.food_type)
+
         if not ef_doc:
-            # If not found, we fallback to trying to match by substring or return error
-            # Try a substring match (case-insensitive) - helpful for small differences like 'Eggs' vs 'Egg'
-            cursor = db[FOOD_COLLECTION].find({"food_name_normalized": {"$regex": normalize_name(item.food_type)}}).limit(1)
-            found = await cursor.to_list(length=1)
-            ef_doc = found[0] if found else None
+            raise HTTPException(status_code=404, detail=f"Emission factor not found for '{item.food_type}'. Please add to database.")
 
-        if not ef_doc or ef_doc.get("kgco2e_per_kg") is None:
-            # If EF missing, you can choose to:
-            #  - raise an error (strict)
-            #  - or skip with 0 and mark in log
-            # Here we will raise a 404 to notify the client to add EF.
-            raise HTTPException(status_code=404, detail=f"Emission factor not found for '{item.food_type}'. Please add to CSV or food_efs collection.")
-
-        ef_val = float(ef_doc["kgco2e_per_kg"])
+        ef_val = float(ef_doc.kgco2e_per_kg)
         qty_kg = float(item.quantity_grams) / 1000.0
         co2 = round(qty_kg * ef_val, 6)
         total_co2 += co2
@@ -70,17 +74,18 @@ async def compute_food_co2(req: ConsumptionRequest):
         )
         results.append(result)
 
-    # Build log doc (immutable)
-    log_doc = {
-        "session_id": session_id,
-        "user_id": user_id,
-        "items": [r.dict() for r in results],
-        "total_co2_kg": round(total_co2, 6),
-        "created_at": datetime.utcnow()
-    }
+        # Log individual emission item
+        db.add(FoodEmission(
+            user_id=user_id,
+            session_id=session_id,
+            food_type=item.food_type,
+            quantity_grams=item.quantity_grams,
+            kgco2e_per_kg=ef_val,
+            co2_kg=co2,
+            ate_at=ate_at
+        ))
 
-    res = await db[LOG_COLLECTION].insert_one(log_doc)
-
+    await db.commit()
 
     response = ConsumptionResponse(
         session_id=session_id,

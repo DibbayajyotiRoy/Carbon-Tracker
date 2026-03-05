@@ -12,7 +12,13 @@ load_dotenv(env_path)
 
 from .db import db
 
-CSV_PATH = os.getenv("FOOD_CSV_PATH", "data/Food_type_co2.csv")
+env_csv_path = os.getenv("FOOD_CSV_PATH")
+if env_csv_path:
+    CSV_PATH = env_csv_path
+else:
+    # Default to data/Food_type_co2.csv relative to this script
+    CSV_PATH = os.path.join(os.path.dirname(__file__), "data", "Food_type_co2.csv")
+
 FOOD_NAME_COL_OVERRIDE = os.getenv("FOOD_NAME_COL")
 EF_COL_OVERRIDE = os.getenv("EF_COL")
 

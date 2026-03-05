@@ -3,7 +3,14 @@ from pathlib import Path
 import pandas as pd
 import os
 
-DATA_DIR = Path(os.getenv("DATA_DIR", "transport_co2_data"))
+# Resolve DATA_DIR relative to script if environment variable is not set
+env_data_dir = os.getenv("DATA_DIR")
+if env_data_dir:
+    DATA_DIR = Path(env_data_dir)
+else:
+    # Default to ../../transport_co2_data relative to this script
+    DATA_DIR = Path(__file__).parent.parent.parent / "transport_co2_data"
+
 
 def _read_xlsx(name: str):
     path = DATA_DIR / name
