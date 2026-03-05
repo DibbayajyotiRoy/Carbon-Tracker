@@ -15,7 +15,7 @@ pushd /tmp > /dev/null
 sudo -u postgres psql <<EOF
 -- Idempotent DB setup
 SELECT 'CREATE DATABASE carbon_tracker' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'carbon_tracker')\gexec
-SELECT "CREATE USER carbon_user WITH PASSWORD 'password'" WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'carbon_user')\gexec
+SELECT 'CREATE USER carbon_user WITH PASSWORD ''password''' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'carbon_user')\gexec
 GRANT ALL PRIVILEGES ON DATABASE carbon_tracker TO carbon_user;
 -- Ensure user has permissions to create tables in the public schema (required for PG 15+)
 \c carbon_tracker
