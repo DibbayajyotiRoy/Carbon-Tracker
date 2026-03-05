@@ -2,7 +2,7 @@ import os
 import logging
 import math
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,12 +26,9 @@ logger = logging.getLogger("uvicorn.error")
 
 # ----------------- FastAPI App Initialization -----------------
 
-app = FastAPI(title="Python VIN->CO2 Service")
+router = APIRouter(tags=["vin"])
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-@app.on_event("startup")
-async def startup_event():
+def init_vin_service():
     # Load tables for emission service
     emission.reload_tables()
 
@@ -44,15 +41,15 @@ class DailyCalculateRequest(BaseModel):
 
 # ----------------- Schemas End -----------------
 
-@app.get("/")
+@router.get("/")
 def home():
     return {"Response" : "You are at home"}
 
-@app.get("/ping")
+@router.get("/ping")
 def ping():
     return {"status": "ok"}
 
-@app.post("/upload-vin")
+@router.post("/upload-vin")
 async def upload_vin(
     user_id: str = Form(...), 
     file: UploadFile = File(...), 
@@ -104,7 +101,7 @@ async def upload_vin(
     
     return {"vin": vin, "decoded": decoded, "vehicle_category": cat, "fuel_type": fuel_norm}
 
-@app.post("/calculate/daily")
+@router.post("/calculate/daily")
 async def calculate_daily(
     payload: DailyCalculateRequest, 
     db: AsyncSession = Depends(get_db)
@@ -165,5 +162,5 @@ async def calculate_daily(
         }
     }
 
-app.include_router(gps_router)
-app.include_router(mode_router)
+router.include_router(gps_router)
+router.include_router(mode_router)

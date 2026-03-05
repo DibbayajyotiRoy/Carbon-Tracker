@@ -1,7 +1,7 @@
 import os
 import uuid
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from fastapi.responses import JSONResponse
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from api.database import get_db
 from api.models import FoodEmissionFactor, FoodEmission, User
 from api.diet_co2.models import FoodInput, ConsumptionRequest, ConsumptionResponse, ComputationResult
 
-app = FastAPI(title="Diet CO2 Service")
+router = APIRouter(tags=["diet"])
 
 def normalize_name(n: str) -> str:
     return n.strip().lower()
@@ -32,7 +32,7 @@ async def lookup_ef(db: AsyncSession, food_name: str):
         
     return ef
 
-@app.post("/compute_food_co2", response_model=ConsumptionResponse)
+@router.post("/compute_food_co2", response_model=ConsumptionResponse)
 async def compute_food_co2(req: ConsumptionRequest, db: AsyncSession = Depends(get_db)):
     # session id groups multiple items in one event
     session_id = str(uuid.uuid4())

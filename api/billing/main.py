@@ -2,18 +2,29 @@ import os
 import json
 import io
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import UploadFile, File, HTTPException, Depends, Form, APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
+from pydantic import BaseModel
 
 from api.database import get_db
 from api.models import User, ElectricityBill, LPGRecord
 
-app = FastAPI(title="Billing Service")
+router = APIRouter(tags=["billing"])
+
+# Define Pydantic models for request/response as implied by the diff
+class BillResponse(BaseModel):
+    success: bool
+    message: str
+    data: dict
+
+class LpgEmissionRequest(BaseModel):
+    cylindersConsumed: float = 0
+    lpgInKg: float = 0
 
 # Initialize Gemini Client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -21,7 +32,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 def calc_carbon_electricity(units: float) -> float:
     return round(float(units) * 0.82, 2)
 
-@app.post("/upload-bill")
+@router.post("/upload-bill", response_model=BillResponse)
 async def upload_bill(
     userId: str = Form(...),
     bill: UploadFile = File(...),
@@ -113,8 +124,8 @@ async def upload_bill(
         print(f"Error processing bill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/emissions-summary")
-async def emissions_summary(db: AsyncSession = Depends(get_db)):
+@router.get("/emissions-summary")
+async def get_emissions_summary(db: AsyncSession = Depends(get_db)):
     try:
         stmt = select(ElectricityBill)
         result = await db.execute(stmt)
@@ -134,8 +145,8 @@ async def emissions_summary(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/carbon-insights")
-async def carbon_insights(db: AsyncSession = Depends(get_db)):
+@router.get("/carbon-insights")
+async def get_carbon_insights(db: AsyncSession = Depends(get_db)):
     try:
         stmt = select(ElectricityBill).order_by(desc(ElectricityBill.uploaded_at)).limit(5)
         result = await db.execute(stmt)
@@ -163,7 +174,7 @@ async def carbon_insights(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/fetch-lpg")
+@router.post("/fetch-lpg")
 async def fetch_lpg(
     userId: str = Form(...),
     lpgText: str = Form(...),
@@ -242,8 +253,11 @@ async def fetch_lpg(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/calculate-lpg-emissions")
-async def calculate_lpg_emissions(cylindersConsumed: float = 0, lpgInKg: float = 0):
+@router.post("/calculate-lpg-emissions")
+async def calculate_lpg_emissions(req: LpgEmissionRequest):
+    cylindersConsumed = req.cylindersConsumed
+    lpgInKg = req.lpgInKg
+
     if cylindersConsumed <= 0 and lpgInKg <= 0:
         raise HTTPException(status_code=400, detail="Provide either cylindersConsumed or lpgInKg (must be > 0)")
         

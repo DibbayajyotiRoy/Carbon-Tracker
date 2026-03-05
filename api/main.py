@@ -3,11 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Import sub-apps
-from api.diet_co2.main import app as diet_app
-from api.python_vin_co2.src.main import app as vin_app
-from api.billing.main import app as billing_app
+from api.diet_co2.main import router as diet_router
+from api.python_vin_co2.src.main import router as vin_router, init_vin_service
+from api.billing.main import router as billing_router
 
 app = FastAPI(title="Carbon-Tracker Unified API")
+
+@app.on_event("startup")
+async def startup_event():
+    init_vin_service()
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,10 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount sub-apps
-app.mount("/api/diet", diet_app)
-app.mount("/api/vin", vin_app)
-app.mount("/api/billing", billing_app)
+# Include routers
+app.include_router(diet_router, prefix="/api/diet")
+app.include_router(vin_router, prefix="/api/vin")
+app.include_router(billing_router, prefix="/api/billing")
 
 @app.get("/")
 async def root():
