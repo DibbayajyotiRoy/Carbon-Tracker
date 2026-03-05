@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
-
-echo "Starting Carbon-Tracker Deployment..."
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "$SCRIPT_DIR/.."
+echo "Working in $(pwd)"
 
 # 1. Update and install dependencies
 sudo apt update
@@ -9,11 +10,14 @@ sudo apt install -y postgresql postgresql-contrib curl
 
 # 2. Database Setup
 echo "Configuring PostgreSQL..."
+# Run psql from /tmp to avoid "Permission denied" warnings from the postgres user
+pushd /tmp > /dev/null
 sudo -u postgres psql <<EOF
 CREATE DATABASE carbon_tracker;
 CREATE USER carbon_user WITH PASSWORD 'password';
 GRANT ALL PRIVILEGES ON DATABASE carbon_tracker TO carbon_user;
 EOF
+popd > /dev/null
 
 # 3. Install uv
 echo "Installing uv..."
@@ -40,8 +44,8 @@ uv sync
 
 # 6. Initialize and seed DB
 echo "Initializing Database..."
-# Use the local .env if present via uv run
-uv run deploy/init_db.py
+# Use explicit python for uv run and ensure correct relative path
+uv run python deploy/init_db.py
 
 # 7. Setup systemd
 echo "Setting up systemd service..."
