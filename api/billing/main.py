@@ -6,13 +6,12 @@ from fastapi import UploadFile, File, HTTPException, Depends, Form, APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from google import genai
-from google.genai import types
 from pypdf import PdfReader
 from pydantic import BaseModel
 
 from api.database import get_db
 from api.models import User, ElectricityBill, LPGRecord
+from api.llm_utils import call_llm, extract_text_from_image
 
 router = APIRouter(tags=["billing"])
 
@@ -26,8 +25,7 @@ class LpgEmissionRequest(BaseModel):
     cylindersConsumed: float = 0
     lpgInKg: float = 0
 
-# Initialize Gemini Client
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# OpenAI-compatible / OpenRouter usage
 
 def calc_carbon_electricity(units: float) -> float:
     return round(float(units) * 0.82, 2)
@@ -48,20 +46,12 @@ async def upload_bill(
             for page in reader.pages:
                 extracted_text += page.extract_text() + "\n"
         elif bill.content_type in ["image/jpeg", "image/png", "image/jpg"]:
-            # Use Gemini for OCR
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_bytes(data=content, mime_type=bill.content_type),
-                            types.Part.from_text(text="Extract all text content from this electricity bill image.")
-                        ]
-                    )
-                ]
+            # Use OpenRouter for OCR
+            extracted_text = await extract_text_from_image(
+                content, 
+                "Extract all text content from this electricity bill image.",
+                mime_type=bill.content_type
             )
-            extracted_text = response.text
         else:
             raise HTTPException(status_code=400, detail="Only PDF, JPG, PNG allowed")
 
@@ -82,15 +72,14 @@ async def upload_bill(
         {extracted_text}
         """
         
-        struct_response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            )
+        messages = [{"role": "user", "content": prompt}]
+        
+        struct_response_text = await call_llm(
+            messages, 
+            response_format={"type": "json_object"}
         )
         
-        structured_data = json.loads(struct_response.text)
+        structured_data = json.loads(struct_response_text)
         units = float(structured_data.get("unitsConsumed", 0))
         carbon_emitted = calc_carbon_electricity(units)
 
@@ -165,12 +154,10 @@ async def get_carbon_insights(db: AsyncSession = Depends(get_db)):
         Give short insights and 3 actionable suggestions to reduce electricity-based emissions.
         """
         
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[prompt]
-        )
+        messages = [{"role": "user", "content": prompt}]
+        insights_text = await call_llm(messages)
         
-        return {"insights": response.text}
+        return {"insights": insights_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -202,15 +189,14 @@ async def fetch_lpg(
         INPUT: "{lpgText}"
         """
         
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            )
+        messages = [{"role": "user", "content": prompt}]
+        
+        response_text = await call_llm(
+            messages,
+            response_format={"type": "json_object"}
         )
         
-        json_data = json.loads(response.text)
+        json_data = json.loads(response_text)
         
         # Carbon Calculation
         EMISSION_PER_CYL = 44.2
